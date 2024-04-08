@@ -1,0 +1,21 @@
+{
+  "name": "simple-ecs-example",
+  "version": "0.0.3",
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "tsup": "^8.0.2"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsup"
+  },
+  "type": "module",
+  "description": "Small game engine / ECS system written in typescript. A lot of it is still very hacky but this is just a hobby project so I'm not too worried about it.",
+  "author": "",
+  "license": "ISC",
+  "files": [
+    "dist"
+  ],
+  "main": "./index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts"
+}
