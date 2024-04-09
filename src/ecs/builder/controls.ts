@@ -1,4 +1,4 @@
-import { Bundle, EntityId } from "ecs/store/entity";
+import { Bundle, EntityId, EntityWrapper } from "ecs/store/entity";
 import ECS from "../engine";
 import type Query from "../query/builder";
 import Resource from "../store/resource";
@@ -8,8 +8,8 @@ export default class ECSControls {
   constructor(protected ecs: ECS) { }
 
   add = {
-    entity: <B extends Bundle>(defaults?: B) => {
-      this.ecs.createEntity(defaults);
+    entity: <B extends Bundle>(defaults?: B): EntityWrapper<B> => {
+      return this.ecs.createEntity(defaults);
     },
     system: <B extends Bundle[], R extends Resource[]>(schedule: SystemSchedule, system: System<B, R>) => {
       this.ecs.addSystem(schedule, system);

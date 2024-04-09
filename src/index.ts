@@ -6,13 +6,16 @@ import System, { SystemSchedule } from './ecs/store/system';
 import { Drawable, DrawPlugin } from './ecs/rendering/drawable';
 import Canvas from './ecs/rendering/canvas';
 import ECSPlugin, { PluginSchedule } from './ecs/builder/plugin';
-import Entity from './ecs/store/entity';
+import { EntityId, Bundle, EntityWrapper as Entity } from './ecs/store/entity';
 
 export default ECS;
 
 export {
   Entity,
+  EntityId,
+  Bundle,
   Component,
+  Filter,
   Resource,
   Query,
   System,
@@ -22,5 +25,4 @@ export {
   Drawable,
   DrawPlugin,
   Canvas,
-  Filter
 }

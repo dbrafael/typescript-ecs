@@ -70,6 +70,10 @@ export class EntityWrapper<B extends Bundle> {
     private _entities: EntityStore, 
     private _components: ComponentStore
   ) { }
+  get id() {
+    return this._entity.id;
+  }
+
   add<C extends Component>(component: C) {
     if (this._entity.has(component.id)) {
       throw new Error(`Entity already has component ${component.id}`);

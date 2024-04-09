@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import ECSBuilder, { Canvas } from "ecs";
-	import type { Point } from "$lib/game/utils";
 
   export let ecs: ECSBuilder;
 
@@ -13,7 +12,7 @@
   let layer4: HTMLCanvasElement;
   let layer5: HTMLCanvasElement;
 
-  let size = [100, 100] as Point;
+  let size = [100, 100];
 
   const onResize = () => {
     size = [container.clientWidth, container.clientHeight];
