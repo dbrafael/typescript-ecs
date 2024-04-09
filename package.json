@@ -9,6 +9,10 @@
     "build": "rm -rf dist && tsup"
   },
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dbrafael/typescript-ecs"
+  },
   "description": "Small game engine / ECS system written in typescript. A lot of it is still very hacky but this is just a hobby project so I'm not too worried about it.",
   "author": "",
   "license": "ISC",
