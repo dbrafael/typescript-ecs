@@ -12,7 +12,7 @@ type ComponentResult<C extends Component, Has extends Component[]> = C extends A
     ? (C | undefined) 
     : C extends Has[number] 
       ? C 
-      : undefined;
+      : (C | undefined);
 
 export default class Entity<Contains extends Bundle = Bundle> {
   private _components: EntityComponents = new Map();
@@ -78,10 +78,7 @@ export class EntityWrapper<B extends Bundle> {
     if (this._entity.has(component.id)) {
       throw new Error(`Entity already has component ${component.id}`);
     }
-
-    this._entity.add(component);
-    this._components.add(component);
-
+    this._entities.update(this._entity, [component], []);
     return this;
   }
 
@@ -89,10 +86,7 @@ export class EntityWrapper<B extends Bundle> {
     if (!this._entity.has(component.id)) {
       return this;
     }
-
-    this._entity.delete(component);
-    this._components.delete(component);
-
+    this._entities.update(this._entity, [], [component]);
     return this;
   }
 
@@ -167,6 +161,22 @@ export class EntityStore {
     return wrapper;
   }
 
+  update<B extends Bundle>(ent: Entity, add: Component[], remove: Component[]) {
+    add.forEach(component => {
+      ent.add(component);
+      this.components.add(component);
+      if (!this.entitiesWithComponent.has(component.id)) {
+        this.entitiesWithComponent.set(component.id, new Set());
+      }
+      this.entitiesWithComponent.get(component.id)?.add(this.entities.get(ent.id)!);
+    });
+    remove.forEach(component => {
+      ent.delete(component);
+      this.components.delete(component);
+      this.entitiesWithComponent.get(component.id)?.delete(this.entities.get(ent.id)!);
+    });
+  }
+
   get<T extends Bundle = any[]>(id: EntityId): EntityWrapper<T> | undefined {
     return this.entities.get(id);
   }
@@ -188,7 +198,7 @@ export class EntityStore {
       return ret;
     }
     for (const q of query) {
-    const [field, filter] = q instanceof Filtered ? [q.component, q.fn] : [q, undefined];
+      const [field, filter] = q instanceof Filtered ? [q.component, q.fn] : [q, undefined];
       let id = typeof field === 'string' ? field : field.name;
       let matches = this.entitiesWithComponent.get(id) || new Set();
       if (matches.size === 0) {

@@ -1,264 +1,292 @@
-import ECSBuilder, { Component, Drawable, ECSPlugin, Entity, Query, System, SystemSchedule, type Bundle, type EntityId } from "ecs";
-import { Position } from "./common";
+import ECSBuilder, { Component, ECSPlugin, Entity, Query, System, SystemSchedule, type Bundle, type EntityId } from "ecs";
+import { GameMap } from "./map";
+import type { Position } from "./common";
 
-enum ItemTypes {
+enum ItemType {
   Gas,
   Fluid,
   Solid,
+  Energy,
   Digital,
 }
 
-abstract class ItemPacket {
-  abstract type: ItemTypes;
-  abstract name: string;
-
-  constructor(public quantity: number) { }
-}
-
-class ItemStorageSlot<T extends ItemTypes> {
-  public item?: ItemPacket;
+class Item {
   constructor(
-    public type: T,
-    public capacity: number
-  ) { }
-}
+    public readonly name: string,
+    public readonly type: ItemType,
+    public readonly maxStack: number = 64
+  ) {}
 
-abstract class BuildingStorage extends Component {
-  slots: ItemStorageSlot<ItemTypes>[] = [];
-  private full = false;
+  static eq(a: Item, b: Item): boolean {
+    return a.name === b.name && a.type === b.type;
+  }
+};
 
-  get str() {
-    return this.slots.map(slot => slot.item ? `${slot.item.name}:${slot.item.quantity}` : 'empty').join(', ');
+
+
+class ItemStack {
+  constructor(
+    public item: Item,
+    public count: number,
+    public readonly maxCount: number = 64
+  ) {
+    if (count > maxCount) {
+      throw new Error(`Cannot create ItemStack with count ${count} greater than maxCount ${maxCount}`);
+    }
   }
 
-  get any(): ItemPacket | undefined {
-    for (let i = 0; i < this.slots.length; i++) {
-      const slot = this.slots[i];
-      if (slot.item !== undefined) {
-        const ret = { ...slot.item };
-        this.slots[i].item = undefined;
-        this.full = false;
-        return ret;
-      }
+  add(stack: ItemStack): ItemStack {
+    if (!Item.eq(this.item, stack.item) || this.full) {
+      return stack;
     }
-    return undefined;
-  }
-      
 
-  add(item: ItemPacket): ItemPacket | null {
-    if (this.full) {
-      return item;
-    }
-    let remaining = item.quantity;
-    let start = remaining;
-    for (const slot of this.slots) {
-      if (slot.type === item.type) {
-        if (!slot.item) {
-          slot.item = { ...item, quantity: Math.min(remaining, slot.capacity) };
-          remaining -= item.quantity;
-        } else if (slot.item.name === item.name) {
-          const diff = slot.capacity - slot.item.quantity;
-          if (diff > 0) {
-            const toAdd = Math.min(remaining, diff);
-            slot.item.quantity += toAdd;
-            remaining -= toAdd;
-          }
-        }
-        if (remaining == 0) {
-          return null;
-        }
-      }
-    }
-    if (remaining === start) {
-      this.full = true;
-    }
-    if (remaining > 0) {
-      return { ...item, quantity: remaining };
-    }
-    return null;
+    const space = this.maxCount - this.count;
+    const transfer = Math.min(space, stack.count);
+    this.count += transfer;
+    stack.count -= transfer;
+    return stack;
   }
 
-  take(item: ItemPacket): ItemPacket {
-    let remaining = item.quantity;
-    for (const slot of this.slots) {
-      if (slot.item && slot.type === item.type && slot.item.name === item.name) {
-        const toTake = Math.min(remaining, slot.item.quantity);
-        slot.item.quantity -= toTake;
-        remaining -= toTake;
-        if (slot.item.quantity === 0) {
-          slot.item = undefined;
-        }
-        if (remaining === 0) {
-          break;
-        }
-      }
-    }
-
-    item.quantity -= remaining;
-    return item;
-  }
-}
-
-class Cable extends Component {
-  private receivers: Map<EntityId, (item: ItemPacket) => ItemPacket | null> = new Map();
-  private _queue: ItemPacket | null = null;
-  private capacity = 64;
-
-  queue(item: ItemPacket): ItemPacket {
-    if (!this._queue) {
-      const toAdd = Math.min(this.capacity, item.quantity);
-      this._queue = { ...item, quantity: toAdd };
-      item.quantity -= toAdd;
-      return item;
-    } else if (this._queue.name === item.name && this._queue.type === item.type) {
-      const toAdd = Math.min(this.capacity - this._queue.quantity, item.quantity);
-      this._queue.quantity += toAdd;
-      item.quantity -= toAdd;
-      return item;
-    }
-    return item;
+  get empty(): boolean {
+    return this.count === 0;
   }
   
-  tick() {
-    for (const [id, receiver] of this.receivers.entries()) {
-      const item = this._queue;
-      if (!item) {
-        return;
+  get full(): boolean {
+    return this.count === this.maxCount;
+  }
+}
+
+type InsertResult = ItemStack | boolean;
+    
+class BuildingStorage extends Component {
+  public storage = new Map<ItemType, ItemStack[]>();
+
+  get str(): string {
+    return [...this.storage.entries()].map(([type, stacks]) => {
+      return `${type}: ${stacks.map((stack) => `${stack.item.name}.${stack.count}`).join(", ")}`;
+    }).join("\n");
+  }
+
+  get filter(): ItemFilter {
+    return (item: Item) => this.storage.has(item.type);
+  }
+
+  *items(types?: ItemType[]): IterableIterator<ItemStack> {
+    for (const type of types || this.storage.keys()) {
+      const stacks = this.storage.get(type);
+      if (!stacks) {
+        continue;
       }
-      this._queue = receiver(item);
-    }
-  }
-
-  register(ent: Entity<[BuildingStorage]>) {
-    const storage = ent.get(BuildingStorage);
-    const receive = (item: ItemPacket) => {
-      return storage.add(item);
-    }
-    this.receivers.set(ent.id, receive);
-  }
-
-  unregister(id: EntityId) {
-    this.receivers.delete(id);
-  }
-}
-
-abstract class Building<B extends Bundle> extends Component {
-  abstract tick(ent: Entity<B>): void;
-}
-
-export type GeneratorBuildingBundle = [ BuildingStorage, Cable ];
-export abstract class GeneratorBuilding extends Building<GeneratorBuildingBundle> {
-  abstract tick(tick: Entity<GeneratorBuildingBundle>): void;
-  protected trySend(ent: Entity<GeneratorBuildingBundle>): void {
-    const storage = ent.get(BuildingStorage);
-    let next = storage.any;
-    if (next) {
-      const cable = ent.get(Cable);
-      const rem = cable.queue(next);
-      if (rem.quantity > 0) {
-        storage.add(rem);
+      for (const stack of stacks) {
+        yield stack;
       }
     }
   }
-}
 
-export type ProcessingBuildingBundle = [ BuildingStorage ];
-export abstract class ProcessingBuilding extends Building<ProcessingBuildingBundle> {
-  abstract tick(tick: Entity<ProcessingBuildingBundle>): void;
-}
+  constructor(public readonly capacity: Map<ItemType, number>) {
+    super();
+    this.capacity.forEach((_, type) => {
+      this.storage.set(type, []);
+    });
+  }
 
-class Air extends ItemPacket {
-  type = ItemTypes.Gas;
-  name = 'air';
-}
+  insert(itemStack: ItemStack): InsertResult {
+    const type = itemStack.item.type;
+    const storage = this.storage.get(type)!;
+    const capacity = this.capacity.get(type)!;
 
-class GasStorage extends BuildingStorage {
-  slots = [
-    new ItemStorageSlot(ItemTypes.Gas, 64),
-    new ItemStorageSlot(ItemTypes.Gas, 64),
-    new ItemStorageSlot(ItemTypes.Gas, 64),
-    new ItemStorageSlot(ItemTypes.Gas, 64),
-  ];
+    if (!storage) {
+      return false;
+    }
 
-  accepts(item: ItemPacket) {
-    return item.type === ItemTypes.Gas && item.name === 'air';
+    const start = itemStack.count;
+    
+    storage.forEach((stack) => {
+      itemStack = stack.add(itemStack);
+      if (itemStack.empty) {
+        return itemStack;
+      }
+    });
+
+    if (!itemStack.empty && capacity > storage.length) {
+      storage.push(itemStack);
+      return true;
+    }
+    
+    return itemStack;
+  }
+
+  remove(itemStack: ItemStack) {
+    const storage = this.storage.get(itemStack.item.type);
+    if (!storage) {
+      return;
+    }
+    storage.splice(storage.indexOf(itemStack), 1); 
   }
 }
-  
-class AirCollector extends GeneratorBuilding {
-  tick(ent: Entity<GeneratorBuildingBundle>): void {
+
+type ItemReceiver = (itemStack: ItemStack) => InsertResult;
+type ItemFilter = (item: Item) => boolean;
+
+class BuildingOutput extends Component {
+  private destinations: Map<EntityId, [ItemReceiver, ItemFilter]> = new Map();
+
+  send(itemStack: ItemStack): InsertResult {
+    for (const [id, [receiver, filter]] of this.destinations) {
+      if (filter(itemStack.item)) {
+        const result = receiver(itemStack);
+        if (result === true) {
+          return true;
+        }
+        itemStack = result as ItemStack;
+      }
+    }
+    if (itemStack.empty) {
+      return true;
+    }
+    return itemStack;
+  }
+
+  addDestination(ent: Entity<[BuildingStorage]>) {
     const storage = ent.get(BuildingStorage);
-    const generated = new Air(1);
-    // voids excess
-    const rem = storage.add(generated);
-    super.trySend(ent);
+    this.destinations.set(ent.id, [storage.insert.bind(storage), storage.filter]);
+  }
+
+  removeDestination(id: EntityId) {
+    this.destinations.delete(id);
   }
 }
 
-class AirProcessor extends ProcessingBuilding {
-  tick(ent: Entity<ProcessingBuildingBundle>): void {
-    const cStorage = ent.get(BuildingStorage);
-    console.log(cStorage.str);
+abstract class BuildingProcess extends Component {
+  abstract tick(ent: Entity<[Building, BuildingProcess]>): void;
+}
+
+class Building extends Component {
+  constructor(
+    public readonly name: string
+  ) {
+    super();
+  }
+
+  tick(ent: Entity<[Building]>) {
+    const process = ent.get(BuildingProcess);
+    const output = ent.get(BuildingOutput);
+    const storage = ent.get(BuildingStorage);
+    const monitor = ent.get(StorageMonitor);
+
+    if (process) {
+      process.tick(ent);
+    }
+
+    if (output && storage) {
+      for (const stack of storage.items()) {
+        const result = output.send(stack) as ItemStack | true;
+        if (result === true) {
+          storage.remove(stack);
+          continue;
+        }
+        if (result.count !== stack.count) {
+          stack.count = result.count;
+        }
+      }
+    }
+
+    if (monitor) {
+      monitor.tick(ent);
+    }
   }
 }
 
-class BuildingRender extends Drawable {
-  draw<T extends Bundle>(ent: Entity<T>, ctx: CanvasRenderingContext2D, width: number, height: number): void {
-    const pos = ent.get(Position);
-    if (!pos) return;
+const Oxygen = new Item("Oxygen", ItemType.Gas);
+const Water = new Item("Water", ItemType.Fluid);
+const Nitrogen = new Item("Nitrogen", ItemType.Gas);
 
-    ctx.fillStyle = 'green';
-    ctx.fillRect(pos.x, pos.y, 32, 32);
+class CollectAir extends BuildingProcess {
+  tick(ent: Entity<[Building, BuildingProcess, BuildingOutput]>) {
+    const output = ent.get(BuildingOutput);
+
+    const generated = [
+      new ItemStack(Nitrogen, 64),
+      new ItemStack(Nitrogen, 14),
+      new ItemStack(Oxygen, 21),
+      new ItemStack(Water, 1)
+    ]
+
+    for (let stack of generated) {
+      output.send(stack);
+    }
   }
 }
 
-const SpawnSampleBuildings = System.new(
-  Query.Empty,
-  (_, __, ecs) => {
-    const processor = ecs.add.entity([new GasStorage(), new AirProcessor(), new BuildingRender(), new Position(50, 50)]);
-    const collector = ecs.add.entity([new GasStorage(), new AirCollector(), new BuildingRender(), new Position(10, 10), new Cable()]);
-    const cable = collector.get(Cable);
-
-    cable.register(processor);
+class StorageMonitor extends Component {
+  tick(ent: Entity<[StorageMonitor, BuildingStorage]>) {
+    const storage = ent.get(BuildingStorage);
+    console.log(storage.str);
   }
-);
+}
 
-const GeneratorBuildingSystem = System.new(
-  Query.bundle(GeneratorBuilding),
-  ([buildings]) => {
-    buildings.forEach(ent => {
-      const building = ent.get(GeneratorBuilding);
-      building.tick(ent as any);
-   });
+class Build extends Component {
+  constructor(
+    public readonly sprite: string,
+    public readonly position: Position,
+  ) {
+    super();
   }
-);
-
-const CableSystem = System.new(
-  Query.bundle(Cable),
-  ([cables]) => {
-    cables.forEach(ent => {
-      const cable = ent.get(Cable);
-      cable.tick();
-    });
-  }
-);
-
-const ProcessingBuildingSystem = System.new(
-  Query.bundle(ProcessingBuilding),
-  ([buildings]) => {
-    buildings.forEach(ent => {
-      const building = ent.get(ProcessingBuilding);
-      building.tick(ent as any);
-    });
-  }
-);
+}
 
 export class BuildingPlugin extends ECSPlugin {
   build(ecs: ECSBuilder): void {
-    ecs.add.system(SystemSchedule.Startup, SpawnSampleBuildings);
-    ecs.add.system(SystemSchedule.FixedUpdate, GeneratorBuildingSystem);
-    ecs.add.system(SystemSchedule.FixedUpdate, ProcessingBuildingSystem);
-    ecs.add.system(SystemSchedule.FixedUpdate, CableSystem);
+    ecs.add.system(
+      SystemSchedule.Startup,
+      System.new(
+        Query.Empty,
+        (_, _res, ecs) => {
+          const collector = ecs.add.entity([
+            new Building("Air Collector"),
+            new BuildingOutput(),
+            new CollectAir(),
+            new Build("", { x: 5, y: 5 }),
+          ])
+
+          const storage = ecs.add.entity([
+            new Building("Gas Tank"),
+            new BuildingStorage(new Map([[ItemType.Gas, 10], [ItemType.Fluid, 10]])),
+            new Build("", { x: 10, y: 10 }),
+          ])
+
+          collector.get(BuildingOutput).addDestination(storage);
+        }
+      )
+    )
+
+    ecs.add.system(
+      SystemSchedule.FixedUpdate,
+      System.new(
+        Query.bundle(Build).resources(GameMap),
+        ([toBuild], resources) => {
+          const map = resources.get(GameMap);
+          toBuild.forEach((ent) => {
+            const build = ent.get(Build);
+            if (!build) {
+              return;
+            }
+            map.build(build.position, { background: "blue", sprite: build.sprite });
+            ent.remove(build);
+          })
+        })
+    )
+
+    ecs.add.system(
+      SystemSchedule.FixedUpdate,
+      System.new(
+        Query.bundle(Building).resources(GameMap),
+        ([buildings], resources) => {
+          const map = resources.get(GameMap);
+          buildings.forEach((ent) => {
+            ent.get(Building).tick(ent);
+          })
+        }
+      )
+    )
   }
 }
-    
