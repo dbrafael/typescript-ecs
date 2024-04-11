@@ -1,4 +1,4 @@
-import ECSControls from './ecs/pub/controls';
+import ECS from './ecs/pub/controls';
 import Query from './ecs/query/builder';
 import Component, { Filter } from './ecs/store/component';
 import Resource from './ecs/store/resource';
@@ -9,8 +9,9 @@ import ECSPlugin from './ecs/pub/plugin';
 import { EntityId, Bundle, EntityWrapper as Entity } from './ecs/store/entity';
 import Subject from './ecs/signal';
 
+export default ECS;
+
 export {
-  ECSControls,
   Entity,
   EntityId,
   Bundle,
@@ -24,5 +25,5 @@ export {
   Drawable,
   DrawPlugin,
   Canvas,
-  Subject as Signal
+  Subject,
 }
