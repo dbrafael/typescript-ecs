@@ -1,7 +1,7 @@
 import ECS, { DrawPlugin, PluginSchedule } from "ecs";
 import type { AppContext } from "../types";
-import { BuildingPlugin } from "$lib/game/buildings";
-import { MapPlugin } from "$lib/game/map";
+import { MapPlugin } from "$lib/game/map/map";
+import { BuildingPlugin } from "$lib/game/buildings/buildings";
 
 export const ssr = false;
 

@@ -1,6 +1,6 @@
 {
   "name": "simple-ecs-example",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "devDependencies": {
     "typescript": "^5.0.0",
     "tsup": "^8.0.2"

@@ -1,6 +1,8 @@
-import { ClassOf } from "./component";
+import { ClassOf } from "../utils";
+import { ComponentId } from "./component";
 
-export type ResourceId = string;
+export type ResourceId = ComponentId;
+
 export default abstract class Resource {
   get id() {
     return this.constructor.name;

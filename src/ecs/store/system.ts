@@ -1,15 +1,16 @@
-import ECSBuilder from "ecs/builder/builder";
+import ECSControls from "../pub/controls";
 import { Bundle } from "./entity";
 import Resource from "./resource";
-import { ResourcesResult } from "ecs/query/resource";
-import { BundleResultList } from "ecs/query/bundle";
-import { Query } from "index";
+import { ResourcesMap } from "../query/resource";
+import Query from "../query/builder";
+import { BundleResultList } from "../query/builder";
 
 export enum SystemSchedule {
   Prepare,
   Startup,
   Update,
   FixedUpdate,
+  Stop,
 }
 
 export type SystemControls = {
@@ -17,7 +18,7 @@ export type SystemControls = {
   disable: () => void;
 };
 
-export type SystemFn<B extends Bundle[], R extends Resource[]> = (bundles: BundleResultList<B>, res: ResourcesResult<R>, ecs: ECSBuilder) => void;
+export type SystemFn<B extends Bundle[], R extends Resource[]> = (bundles: BundleResultList<B>, res: ResourcesMap<R>, ecs: ECSControls) => void;
 export type SystemDef<B extends Bundle[], R extends Resource[]> = [Query<B, R>, SystemFn<B, R>];
 
 export default class System<B extends Bundle[], R extends Resource[]> {
@@ -35,7 +36,7 @@ export default class System<B extends Bundle[], R extends Resource[]> {
     this.cb = args[1];
   }
 
-  static new<B extends Bundle[], R extends Resource[]>(...args: SystemDef<B, R>) {
+  static new<B extends Bundle[], R extends Resource[]>(args: SystemDef<B, R>) {
     return new System(args);
   }
 }
@@ -53,10 +54,10 @@ export class SystemStore extends Map<SystemSchedule, Set<System<any, any>>> {
     this.get(schedule)!.add(system);
   }
 
-  execute(schedule: SystemSchedule, ecs: ECSBuilder) {
+  execute(schedule: SystemSchedule, ecs: ECSControls) {
     for (const system of this.get(schedule)!) {
       if (!system.active) continue;
-      const args = system.query.execute(ecs.engine);
+      const args = system.query.execute(ecs.ecs);
       system.cb(args[0], args[1], ecs);
     }
   }

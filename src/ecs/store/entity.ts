@@ -1,21 +1,23 @@
-import { ComponentFilter } from "ecs/query/bundle";
-import Component, { ComponentStore, ComponentId, type AbstractClassOf, type ClassOf, Filtered } from "./component";
+import { ComponentFilter } from "../query/bundle";
+import Component, { ComponentStore, ComponentId, Filtered } from "./component";
+import { AbstractClassOf, ClassOf } from "../utils";
 
 export type EntityId = number;
 export type Bundle = [ ...Component[] ];
 
 type EntityComponents = Map<ComponentId, Component>;
+
 type Unknown<T> = T | undefined;
-type ComponentResult<C extends Component, Has extends Component[]> = C extends AbstractClassOf<infer X> 
-  ? Unknown<X> 
-  : Has extends [] 
-    ? (C | undefined) 
-    : C extends Has[number] 
-      ? C 
-      : (C | undefined);
+type ComponentResult<C extends Component, Has extends Component[]> = C extends ClassOf<infer X> ? X extends Has[number] ? C : Unknown<C> : Unknown<C>;
 
 export default class Entity<Contains extends Bundle = Bundle> {
   private _components: EntityComponents = new Map();
+
+  *components(): IterableIterator<[ComponentId, Component]> {
+    for (const [generator, component] of this._components) {
+      yield [generator, component];
+    }
+  }
 
   constructor(public readonly id: EntityId) {}
 
@@ -23,19 +25,20 @@ export default class Entity<Contains extends Bundle = Bundle> {
     this._components.set(component.id, component);
   }
 
-  get componentIds(): ComponentId[] {
-    return Array.from(this._components.keys());
-  }
-
-  delete<C extends Component>(component: C) {
-    this._components.delete(component.id);
+  has(comp: ClassOf<Component> | ComponentId): boolean {
+    const id = typeof comp === 'string' ? comp : comp.name;
+    return this._components.has(id);
   }
 
   get<C extends Component>(id: ComponentId): ComponentResult<C, Contains> {
     return this._components.get(id) as ComponentResult<C, Contains>;
   }
 
-  getExtends<T extends Component>(parent: ComponentId, relations: ComponentStore): T | undefined {
+  delete<C extends Component>(component: C) {
+    this._components.delete(component.id);
+  }
+
+  getDerived<T extends Component>(parent: ComponentId, relations: ComponentStore): T | undefined {
     const types = relations.extendTypes(parent);
     for (const type of types) {
       if (this.has(type)) {
@@ -44,31 +47,21 @@ export default class Entity<Contains extends Bundle = Bundle> {
     }
   }
 
-  has(comp: ClassOf<Component> | ComponentId): boolean {
-    const id = typeof comp === 'string' ? comp : comp.name;
-    return this._components.has(id);
-  }
-
-  hasId(id: ComponentId): boolean {
-    return this._components.has(id);
-  }
-
   hasMany(comps: (ClassOf<Component> | ComponentId)[]): boolean {
     return comps.every(comp => this.has(comp));
-  }
-
-  *components(): IterableIterator<[ComponentId, Component]> {
-    for (const [generator, component] of this._components) {
-      yield [generator, component];
-    }
   }
 }
 
 export class EntityWrapper<B extends Bundle> {
+  private static _entities: EntityStore;
+  private static _components: ComponentStore;
+  static updateStores(entities: EntityStore, components: ComponentStore) {
+    EntityWrapper._entities = entities;
+    EntityWrapper._components = components;
+  }
+
   constructor(
     private _entity: Entity<B>, 
-    private _entities: EntityStore, 
-    private _components: ComponentStore
   ) { }
   get id() {
     return this._entity.id;
@@ -78,7 +71,7 @@ export class EntityWrapper<B extends Bundle> {
     if (this._entity.has(component.id)) {
       throw new Error(`Entity already has component ${component.id}`);
     }
-    this._entities.update(this._entity, [component], []);
+    EntityWrapper._entities.update(this._entity, [component], []);
     return this;
   }
 
@@ -86,19 +79,19 @@ export class EntityWrapper<B extends Bundle> {
     if (!this._entity.has(component.id)) {
       return this;
     }
-    this._entities.update(this._entity, [], [component]);
+    EntityWrapper._entities.update(this._entity, [], [component]);
     return this;
   }
 
   delete() {
-    this._entities.delete(this._entity.id);
+    EntityWrapper._entities.delete(this._entity.id);
   }
 
   get<C extends Component>(comp: ClassOf<C> | AbstractClassOf<C> | ComponentId): ComponentResult<C, B> {
     const id = typeof comp === 'string' ? comp : comp.name;
     const result = this._entity.get(id);
     if (!result) {
-      const tryExtend = this._entity.getExtends(id, this._components);
+      const tryExtend = this._entity.getDerived(id, EntityWrapper._components);
       return tryExtend as ComponentResult<C, B>;
     }
     return result as ComponentResult<C, B>;
@@ -138,15 +131,20 @@ class Indexer {
 }
 
 export class EntityStore {
-  private indexer = new Indexer();
+  private static indexer = new Indexer();
+
   private entities: Map<EntityId, EntityWrapper<Bundle>> = new Map();
   private components: ComponentStore = new ComponentStore();
   private entitiesWithComponent: Map<ComponentId, Set<EntityWrapper<Bundle>>> = new Map();
 
+  constructor() {
+    EntityWrapper.updateStores(this, this.components);
+  }
+
   new<B extends Bundle>(defaults?: B): EntityWrapper<B> {
-    const id = this.indexer.next();
+    const id = EntityStore.indexer.next();
     const entity = new Entity<B>(id);
-    const wrapper = new EntityWrapper(entity, this, this.components);
+    const wrapper = new EntityWrapper(entity);
     if (defaults) {
       for (const comp of defaults) {
         if (!this.entitiesWithComponent.has(comp.id)) {
@@ -161,7 +159,7 @@ export class EntityStore {
     return wrapper;
   }
 
-  update<B extends Bundle>(ent: Entity, add: Component[], remove: Component[]) {
+  update<B extends Bundle>(ent: Entity, add: Component[], remove: Component[]): EntityWrapper<B> {
     add.forEach(component => {
       ent.add(component);
       this.components.add(component);
@@ -175,6 +173,7 @@ export class EntityStore {
       this.components.delete(component);
       this.entitiesWithComponent.get(component.id)?.delete(this.entities.get(ent.id)!);
     });
+    return this.entities.get(ent.id) as EntityWrapper<B>;
   }
 
   get<T extends Bundle = any[]>(id: EntityId): EntityWrapper<T> | undefined {

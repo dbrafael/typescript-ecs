@@ -1,58 +1,66 @@
-import Component, { type ClassOf } from "./store/component";
+import Component from "./store/component";
 import { Bundle, EntityStore, EntityWrapper, type EntityId } from "./store/entity";
-import System, { SystemSchedule, SystemStore } from "./store/system";
+import System, { SystemFn, SystemSchedule, SystemStore } from "./store/system";
 
 import type Resource from "./store/resource";
-import type ECSBuilder from "./builder/builder";
+import type ECSControls from "./pub/controls";
 import { ResourceStore } from "./store/resource";
 import { ComponentFilter } from "./query/bundle";
+import Query from "./query/builder";
+import { ClassOf } from "./utils";
 
 export default class ECS {
-  entities: EntityStore = new EntityStore();
-  systems: SystemStore = new SystemStore();
-  resources: ResourceStore = new ResourceStore();
-  
-  private _dtu: number = 0;
-  private _dtf: number = 0;
+  private _entities: EntityStore = new EntityStore();
+  private _systems: SystemStore = new SystemStore();
+  private _resources: ResourceStore = new ResourceStore();
 
-  set dtUpdate(dt: number) {
-    this._dtu = dt;
+  private _lastFrame: number = 0;
+  private _lastTick: number = 0;
+
+  set lastTick(t: number) {
+    this._lastTick = t;
   }
 
-  set dtFixed(dt: number) {
-    this._dtf = dt;
+  set lastFrame(t: number) {
+    this._lastFrame = t;
   }
 
   constructor() { }
 
-  registerResource<T extends Resource>(resource: T) {
-    if (!this.resources.add(resource)) {
-      throw new Error('Resource already registered');
+  register = {
+    resource: <T extends Resource>(resource: T) => {
+      if (!this._resources.add(resource)) {
+        throw new Error('Resource already registered');
+      }
+    },
+    system: <B extends Bundle[], R extends Resource[]>(schedule: SystemSchedule, system: System<B, R>) => {
+      this._systems.add(schedule, system);
+    },
+  };
+  create = {
+    entity: <B extends Bundle>(defaults?: B) => {
+      return this._entities.new(defaults);
+    },
+    system: <B extends Bundle[], R extends Resource[]>(schedule: SystemSchedule, query: Query<B, R>, fn: SystemFn<B, R>) => {
+      this._systems.add(schedule, System.new([query, fn]));
     }
   }
-
-  removeEntity(id: EntityId) {
-    this.entities.delete(id);
+  remove = {
+    entity: (id: EntityId) => {
+      this._entities.delete(id);
+    },
   }
-
-  createEntity<B extends Bundle>(defaults?: B): EntityWrapper<B> {
-    return this.entities.new(defaults);
+  query = {
+    components: <C extends Component>(...query: ComponentFilter<C>[]): Set<EntityWrapper<[C]>> => {
+      return this._entities.withComponents<[C]>(query);
+    },
+    resource: <R extends Resource>(clazz: ClassOf<R>): R => {
+      return this._resources.get(clazz) as R;
+    },
   }
-
-  queryResource<R extends Resource>(clazz: ClassOf<R>): R {
-    return this.resources.get(clazz) as R;
-  }
-
-  queryComponents<C extends Component>(...query: ComponentFilter<C>[]): Set<EntityWrapper<[C]>> {
-    return this.entities.withComponents<[C]>(query);
-  }
-
-  addSystem(schedule: SystemSchedule, system: System<any, any>) {
-    this.systems.add(schedule, system);
-  }
-
-  runSystems(schedule: SystemSchedule, controls: ECSBuilder) {
-    this.systems.execute(schedule, controls);
+  run = {
+    systems: (schedule: SystemSchedule, controls: ECSControls) => {
+      this._systems.execute(schedule, controls);
+    }
   }
 }
-

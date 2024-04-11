@@ -1,6 +1,6 @@
 import ECSBuilder, { Component, ECSPlugin, Entity, Query, System, SystemSchedule, type Bundle, type EntityId } from "ecs";
-import { GameMap } from "./map";
-import type { Position } from "./common";
+import type { Position } from "../common";
+import { GameMap } from "../map/map";
 
 enum ItemType {
   Gas,
@@ -229,6 +229,7 @@ class Build extends Component {
   constructor(
     public readonly sprite: string,
     public readonly position: Position,
+    public readonly entityId: EntityId = -1
   ) {
     super();
   }
@@ -245,14 +246,14 @@ export class BuildingPlugin extends ECSPlugin {
             new Building("Air Collector"),
             new BuildingOutput(),
             new CollectAir(),
-            new Build("", { x: 5, y: 5 }),
           ])
+          collector.add(new Build("", { x: 5, y: 5 }, collector.id));
 
           const storage = ecs.add.entity([
             new Building("Gas Tank"),
             new BuildingStorage(new Map([[ItemType.Gas, 10], [ItemType.Fluid, 10]])),
-            new Build("", { x: 10, y: 10 }),
           ])
+          storage.add(new Build("", { x: 10, y: 10 }, storage.id));
 
           collector.get(BuildingOutput).addDestination(storage);
         }
@@ -270,7 +271,7 @@ export class BuildingPlugin extends ECSPlugin {
             if (!build) {
               return;
             }
-            map.build(build.position, { background: "blue", sprite: build.sprite });
+            map.build(build.position, { background: "blue", sprite: build.sprite, entity: build.entityId });
             ent.remove(build);
           })
         })

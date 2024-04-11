@@ -1,5 +1,5 @@
-import { ComponentRepresentation } from "ecs/query/bundle";
-import Resource from "./resource";
+import { ComponentRepresentation } from "../query/bundle";
+import { ClassOf } from "../utils";
 
 export type ComponentId = string;
 
@@ -82,10 +82,3 @@ export class ComponentStore {
     return this.relations.get(comp) || new Set();
   }
 }
-
-export type ClassOf<T extends Component> = (new (...args: any[]) => T);
-export type Constructed<T> = T extends ClassOf<infer U> ? U : never;
-
-export type AbstractClassOf<T> = (abstract new (...args: any[]) => T);
-
-export type TupleClass<T extends (Component | Resource)[]> = [ ...{ [K in keyof T]: ClassOf<T[K]> } ];
